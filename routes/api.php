@@ -10,8 +10,9 @@ use App\Http\Controllers\API\v1\SubscriptionController;
 use App\Http\Controllers\API\v1\BannerController;
 use App\Http\Controllers\API\v1\LanguageController;
 use App\Http\Controllers\API\v1\CharacterController;
+use App\Http\Controllers\AssistantsController;
+use App\Http\Controllers\ChatsController;
 use App\Http\Controllers\ConversationController;
-
 
 /*
 |--------------------------------------------------------------------------
@@ -69,5 +70,6 @@ Route::group(['middleware' => ['apiKeyAuth']], function () {
     Route::post('v1/delete-proms-history/', [UserController::class, 'DeletePromsHistory']);
     Route::post('v1/delete-chat-history/', [UserController::class, 'DeleteChatHistory']);
 });
-Route::resource('conversations',ConversationController::class)->middleware(['auth:sanctum']);
-// Route::resource('chat',ChatController::class)->middleware(['auth:sanctum']);
+Route::post('/chat-room',[ConversationController::class,'store']);
+Route::post('/chat',[ConversationController::class,'send_message']);
+Route::post('users',[UserController::class, 'login']);

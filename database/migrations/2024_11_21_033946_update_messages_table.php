@@ -17,7 +17,7 @@ class UpdateMessagesTable extends Migration
         Schema::create('messages', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('room_id');
-            $table->unsignedBigInteger('charater_id');
+            $table->unsignedBigInteger('charater_id')->nullable();
             $table->longText('message');
             $table->boolean('is_read')->default(0);
             $table->boolean('sort')->default(0);
