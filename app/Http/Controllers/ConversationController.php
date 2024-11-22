@@ -21,7 +21,7 @@ class ConversationController extends Controller
     public function getAssistant(){
         $result = Characters::where('is_active',1)
         ->where('is_public',1)
-        ->select('id as character_id','fullname as character_name')
+        ->select('id as character_id','name as character_name')
         ->get();
         return response()->json($result);
 
@@ -176,7 +176,7 @@ class ConversationController extends Controller
         if($character->assistant_intro) {
            $introduction = $character->assistant_intro;
         } else {
-            $introduction = "Your name is ". $character->fullname ." , a ". $character->introduction.". ";
+            $introduction = "Your name is ". $character->name ." , a ". $character->introduction.". ";
             if ($character->conversational) {
                 $introduction .= "Your conversational style is ". $character->conversational .". ";
             }
@@ -224,7 +224,7 @@ class ConversationController extends Controller
         ->select(
             'conversations.id as id',
             'conversations.name as name',
-            'characters.fullname as character_name',
+            'characters.name as character_name',
             'characters.id as character_id'
         )
         ->get();
@@ -245,7 +245,7 @@ class ConversationController extends Controller
                     ->select(
                         'messages.*',
                         'characters.id as character_id',
-                        'characters.fullname as character_fullname',
+                        'characters.name as character_name',
                         DB::raw('IF(messages.character_id IS NULL, 0, 1) as is_reply')
                     )
                     ->get();
@@ -295,7 +295,7 @@ class ConversationController extends Controller
         ->select(
             'conversations.id as id',
             'conversations.name as name',
-            'characters.fullname as character_name',
+            'characters.name as character_name',
             'characters.id as character_id'
         )
         ->get();

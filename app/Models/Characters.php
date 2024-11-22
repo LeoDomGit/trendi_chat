@@ -11,7 +11,7 @@ class Characters extends Model
     protected $table='characters';
     protected $fillable=[
         'id',
-        'fullname',
+        'name',
         'seed',
         'assistant_id',
         'assistant_intro',
@@ -20,8 +20,9 @@ class Characters extends Model
         'model',
         'slug',
         'opening_greeting',
-        'avatar',
+        'photo',
         'is_public',
+        'lock',
         'is_active',
         'created_at',
         'updated_at',
