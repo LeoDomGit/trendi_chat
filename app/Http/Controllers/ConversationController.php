@@ -21,7 +21,7 @@ class ConversationController extends Controller
     public function getAssistant(){
         $result = Characters::where('is_active',1)
         ->where('is_public',1)
-        ->select('id as character_id','name as character_name')
+        ->select('id as character_id','name as character_name','photo')
         ->get();
         return response()->json($result);
 
