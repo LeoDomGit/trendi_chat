@@ -11,10 +11,23 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Validator;
 use GuzzleHttp\Client;
+use Illuminate\Support\Facades\DB;
 
 class ConversationController extends Controller
 {
     /**
+     * Display a listing of the resource.
+     */
+    public function getAssistant(){
+        $result = Characters::where('is_active',1)
+        ->where('is_public',1)
+        ->select('id as character_id','name as character_name')
+        ->get();
+        return response()->json($result);
+
+    }
+
+         /**
      * Display a listing of the resource.
      */
     public function index(Request $request)
@@ -147,13 +160,7 @@ class ConversationController extends Controller
             $conversation->save();
 
             // Return response with the assistant's message
-            $message = [
-                'message' => $assistant_message_content,
-                'created_at' => \Carbon\Carbon::parse(now())->toISOString(),
-                'is_lover' => 1,
-                'is_image' => 0,
-                'image_url' => '',
-            ];
+            $message= Messages::where('room_id',$conversation->id)->get();
 
             return response()->json(['status' => 'success', 'message' => $message]);
         }
@@ -169,7 +176,7 @@ class ConversationController extends Controller
         if($character->assistant_intro) {
            $introduction = $character->assistant_intro;
         } else {
-            $introduction = "Your name is ". $character->fullname ." , a ". $character->introduction.". ";
+            $introduction = "Your name is ". $character->name ." , a ". $character->introduction.". ";
             if ($character->conversational) {
                 $introduction .= "Your conversational style is ". $character->conversational .". ";
             }
@@ -212,7 +219,15 @@ class ConversationController extends Controller
      * Store a newly created resource in storage.
      */
     public function getRoom(Request $request){
-        $conversations = Conversation::where('user_id', Auth::id())->get();
+        $conversations = Conversation::join('characters', 'characters.assistant_id', '=', 'conversations.assistant_id')
+        ->where('conversations.user_id', Auth::id())
+        ->select(
+            'conversations.id as id',
+            'conversations.name as name',
+            'characters.name as character_name',
+            'characters.id as character_id'
+        )
+        ->get();
         return response()->json(['status' => 'success', 'data' => $conversations]);
     }
     /**
@@ -220,11 +235,21 @@ class ConversationController extends Controller
      */
     public function getMessages($id){
         $id_user=Auth::id();
-        $conversation = Conversation::where('id',$id)->where('user_id',$id_user)->first();
+        $conversation = Conversation::join('characters', 'characters.assistant_id', '=', 'conversations.assistant_id')->where('conversations.id',$id)->where('conversations.user_id',$id_user)->first();
         if(!$conversation){
             return response()->json(['status'=>'error','message'=>'Not Found'],404);
         }
-        $messages=Messages::where('room_id',$id)->get();
+        $messages = Messages::join('conversations', 'messages.room_id', '=', 'conversations.id')
+                    ->join('characters', 'conversations.assistant_id', '=', 'characters.assistant_id')
+                    ->where('messages.room_id', $id)
+                    ->select(
+                        'messages.*',
+                        'characters.id as character_id',
+                        'characters.name as character_name',
+                        DB::raw('IF(messages.character_id IS NULL, 0, 1) as is_reply')
+                    )
+                    ->get();
+
         return response()->json($messages);
     }
        /**
@@ -233,7 +258,7 @@ class ConversationController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'assistant_id' => 'required|exists:characters,id',
+            'character_id' => 'required|exists:characters,id',
         ]);
 
         if ($validator->fails()) {
@@ -241,7 +266,7 @@ class ConversationController extends Controller
         }
 
         try {
-            $assistant=Characters::where('id',$request->assistant_id)->first();
+            $assistant=Characters::where('id',$request->character_id)->first();
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . env('OPENAI_API_KEY'),
                 'OpenAI-Beta' => 'assistants=v2',
@@ -259,13 +284,21 @@ class ConversationController extends Controller
                 $conversation = Conversation::create([
                     'user_id' =>Auth::id(),
                     'name' => 'New Chat',
-                    'assistant_id' =>  $assistant->assistant_id,
+                    'assistant_id' =>  $assistant->character_id,
                     'thread_id' => $apiData['thread_id'],
                     'run_id' => $apiData['id'] ?? null,
                     'last_message_at' => now(),
                     'is_active' => 1,
                 ]);
-                $conversations = Conversation::where('user_id', Auth::id())->get();
+                $conversations = Conversation::join('characters', 'characters.assistant_id', '=', 'conversations.assistant_id')
+        ->where('conversations.user_id', Auth::id())
+        ->select(
+            'conversations.id as id',
+            'conversations.name as name',
+            'characters.name as character_name',
+            'characters.id as character_id'
+        )
+        ->get();
 
                 return response()->json(['status' => 'success', 'data' => $conversations]);
             } else {
