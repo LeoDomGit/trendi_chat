@@ -10,8 +10,6 @@ use App\Http\Controllers\API\v1\SubscriptionController;
 use App\Http\Controllers\API\v1\BannerController;
 use App\Http\Controllers\API\v1\LanguageController;
 use App\Http\Controllers\API\v1\CharacterController;
-use App\Http\Controllers\AssistantsController;
-use App\Http\Controllers\ChatsController;
 use App\Http\Controllers\ConversationController;
 use App\Http\Middleware\GuestUser;
 
@@ -71,7 +69,10 @@ Route::group(['middleware' => ['apiKeyAuth']], function () {
     Route::post('v1/delete-proms-history/', [UserController::class, 'DeletePromsHistory']);
     Route::post('v1/delete-chat-history/', [UserController::class, 'DeleteChatHistory']);
 });
-Route::get('/room',[ConversationController::class,'getRoom'])->middleware(GuestUser::class);
-Route::post('/room',[ConversationController::class,'store'])->middleware(GuestUser::class);
-Route::post('/chat',[ConversationController::class,'send_message'])->middleware(GuestUser::class);
-Route::get('/chat/{id}',[ConversationController::class,'getMessages'])->middleware(GuestUser::class);
+Route::middleware([GuestUser::class])->group(function () {
+    Route::get('/assistants', [ConversationController::class, 'getAssistant']);
+    Route::get('/room', [ConversationController::class, 'getRoom']);
+    Route::post('/room', [ConversationController::class, 'store']);
+    Route::post('/chat', [ConversationController::class, 'send_message']);
+    Route::get('/chat/{id}', [ConversationController::class, 'getMessages']);
+});
