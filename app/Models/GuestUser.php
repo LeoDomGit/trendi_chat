@@ -21,12 +21,11 @@ class GuestUser extends Authenticatable
         'proms_request',
         'proms_word_count',
         'image_request',
-        
         'fcmtoken',
     ];
 
     protected $hidden = [
-        'id', 
+        'id',
         'created_at',
         'updated_at',
     ];

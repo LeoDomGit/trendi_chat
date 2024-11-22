@@ -2,13 +2,15 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Character;
 use App\Models\Characters;
 use App\Models\Conversation;
 use App\Models\Messages;
-use Auth;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Validator;
+use GuzzleHttp\Client;
 
 class ConversationController extends Controller
 {
@@ -21,7 +23,7 @@ class ConversationController extends Controller
             'model'=>'required',
         ]);
         if ($validator->fails()) {
-            return response()->json(['check'=>false,'msg'=>$validator->errors()->first()]);
+            return response()->json(['status'=>false,'msg'=>$validator->errors()->first()]);
         }
         $conversation = Conversation::where('user_id', Auth::id())->where('model',$request->model)->get();
         if(count($conversation)==0){
@@ -35,7 +37,43 @@ class ConversationController extends Controller
         $conversations = Conversation::where('model',$request->model)->where('user_id', Auth::id())->get();
         return response()->json($conversations);
     }
+ /**
+     * Show the form for creating a new resource.
+     */
+    private function create_thread()
+    {
+        $client = new Client();
+        $response = $client->post('https://api.openai.com/v1/threads', [
+            'headers' => [
+                'Content-Type'  => 'application/json',
+                'Authorization' => 'Bearer ' .  env('OPENAI_API_KEY'),
+                'OpenAI-Beta'   => 'assistants=v2'
+            ],
+            'body' => ''
+        ]);
 
+        Log::debug($response->getBody());
+
+        return json_decode($response->getBody());
+    }
+
+    private function add_message_to_thread($thread_id, $message)
+    {
+        $client = new Client();
+        $response = $client->post('https://api.openai.com/v1/threads/' . $thread_id . '/messages', [
+            'headers' => [
+                'Content-Type'  => 'application/json',
+                'Authorization' => 'Bearer ' . env('OPENAI_API_KEY'),
+                'OpenAI-Beta'   => 'assistants=v2'
+            ],
+            'json' => [
+                'role' => 'user',
+                'content' => $message
+            ]
+        ]);
+
+        return json_decode($response->getBody());
+    }
     /**
      * Show the form for creating a new resource.
      */
@@ -48,114 +86,148 @@ class ConversationController extends Controller
 
         if ($validator->fails()) {
             return response()->json([
-                'check' => false,
-                'msg' => $validator->errors()->first()
+                'status' => 'error',
+                'message' => $validator->errors()->first(),
             ], 422);
         }
+        // Retrieve the conversation
+        $conversation = Conversation::where('id',$request->conversation_id)->first();
 
-        try {
-            // Retrieve the conversation
-            $conversation = Conversation::find($request->conversation_id);
+        if (!$conversation) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Invalid conversation ID.',
+            ], 404);
+        }
+        if (!$conversation->thread_id) {
+            // Create a new thread if not existing
+            $thread_id = $this->create_thread();
 
-            if (!$conversation) {
-                return response()->json([
-                    'check' => false,
-                    'msg' => 'Invalid conversation ID.'
-                ], 404);
-            }
+            $conversation->thread_id = $thread_id->id;
+            $conversation->save();
+        }
 
-            // User message
-            $userMessage = [
-                'role' => 'user',
-                'content' => $request->content,
+        // Add the user's message to the thread
+        $this->add_message_to_thread($conversation->thread_id, $request->content);
+        // Trigger AI response
+        $run_ai = $this->run_assistant($conversation->assistant_id, $conversation->thread_id);
+        sleep(2);
+
+        // Retrieve messages from the thread
+        $messages = $this->list_message_in_thread($conversation->thread_id);
+
+        while ($messages[0]->role != 'assistant' || empty($messages[0]->content)) {
+            sleep(2);
+            $messages = $this->list_message_in_thread($conversation->thread_id);
+        }
+
+        if ($messages[0]->role == 'assistant') {
+            // Save user's message
+            Messages::create([
+                'room_id' => $conversation->id,
+                'character_id' => null, // Null for user messages
+                'message' => $request->content,
+                'is_read' => 1,
+                'sort' => 0,
+            ]);
+
+            // Save assistant's message
+            $assistant_message_content = $messages[0]->content[0]->text->value;
+            Messages::create([
+                'room_id' => $conversation->id,
+                'character_id' => $conversation->assistant_id ?? null, // Use assistant ID if available
+                'message' => $assistant_message_content,
+                'is_read' => 0,
+                'sort' => 1,
+            ]);
+
+            // Update conversation's last message and timestamp
+            $conversation->last_message = substr($assistant_message_content, 0, 30);
+            $conversation->last_message_at = now();
+            $conversation->save();
+
+            // Return response with the assistant's message
+            $message = [
+                'message' => $assistant_message_content,
+                'created_at' => \Carbon\Carbon::parse(now())->toISOString(),
+                'is_lover' => 1,
+                'is_image' => 0,
+                'image_url' => '',
             ];
 
-            // Prepare messages for the conversation
-            $previousMessages = Messages::where('room_id', $conversation->id)
-                ->orderBy('created_at', 'asc')
-                ->get()
-                ->map(function ($message) {
-                    return [
-                        'role' => $message->character_id ? 'assistant' : 'user',
-                        'content' => $message->message,
-                    ];
-                })->toArray();
-
-            // Append the new message
-            $messages = array_merge($previousMessages, [$userMessage]);
-
-            // Call the ChatGPT API
-            $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . env('OPENAI_API_KEY'),
-                'Content-Type' => 'application/json',
-            ])->post('https://api.openai.com/v1/chat/completions', [
-                'model' => 'gpt-4o-mini',
-                'messages' => $messages,
-            ]);
-
-            if ($response->successful()) {
-                $data = $response->json();
-
-                if (!isset($data['choices'][0]['message']['content'])) {
-                    return response()->json([
-                        'check' => false,
-                        'msg' => 'Invalid response from ChatGPT API.',
-                    ], 500);
-                }
-
-                // Extract assistant's reply
-                $assistantMessage = $data['choices'][0]['message']['content'];
-
-                // Save user's message
-                Messages::create([
-                    'room_id' => $conversation->id,
-                    'character_id' => null, // Null for user messages
-                    'message' => $request->content,
-                    'is_read' => 1,
-                    'sort' => 0,
-                ]);
-
-                // Save assistant's reply
-                Messages::create([
-                    'room_id' => $conversation->id,
-                    'character_id' => $conversation->assistant_id ?? null, // Use assistant ID if available
-                    'message' => $assistantMessage,
-                    'is_read' => 0,
-                    'sort' => 1,
-                ]);
-                $data=Messages::where('room_id',$conversation->id)->get();
-                // Return the assistant's reply
-                return response()->json([
-                    'check' => true,
-                    'data' => $data,
-                ]);
-            } else {
-                // Log API error
-                \Log::error('ChatGPT API error', [
-                    'status' => $response->status(),
-                    'response' => $response->body(),
-                ]);
-
-                return response()->json([
-                    'check' => false,
-                    'msg' => 'Failed to communicate with ChatGPT. Please try again later.',
-                ], 500);
-            }
-        } catch (\Exception $e) {
-            // Log unexpected error
-            \Log::error('Error sending message', [
-                'error' => $e->getMessage(),
-            ]);
-
-            return response()->json([
-                'check' => false,
-                'msg' => 'An unexpected error occurred: ' . $e->getMessage(),
-            ], 500);
+            return response()->json(['status' => 'success', 'message' => $message]);
         }
+
+        return response()->json([
+            'status' => 'error',
+            'message' => 'Failed to retrieve assistant response.',
+        ], 500);
+    }
+
+    private function run_assistant($assistant_id, $thread_id) {
+        $character = Characters::where('assistant_id', $assistant_id)->first();
+        if($character->assistant_intro) {
+           $introduction = $character->assistant_intro;
+        } else {
+            $introduction = "Your name is ". $character->fullname ." , a ". $character->introduction.". ";
+            if ($character->conversational) {
+                $introduction .= "Your conversational style is ". $character->conversational .". ";
+            }
+            $introduction .= "Your answer is limited to 30 words.";
+        }
+        $client = new Client();
+        $response = $client->post('https://api.openai.com/v1/threads/' . $thread_id . '/runs', [
+            'headers' => [
+                'Authorization' => 'Bearer ' .  env('OPENAI_API_KEY'),
+                'Content-Type'  => 'application/json',
+                'OpenAI-Beta'   => 'assistants=v2'
+            ],
+            'json' => [
+                'assistant_id' => $character->assistant_id,
+                'instructions' => $introduction,
+                'model' => 'gpt-4o-mini',
+            ]
+        ]);
+
+        return json_decode($response->getBody());
+    }
+        /**
+     * Store a newly created resource in storage.
+     */
+    private function list_message_in_thread($thread_id) {
+        $client = new Client();
+        $response = $client->get('https://api.openai.com/v1/threads/' . $thread_id . '/messages', [
+            'headers' => [
+                'Content-Type'  => 'application/json',
+                'Authorization' => 'Bearer ' .env('OPENAI_API_KEY'),
+                'OpenAI-Beta'   => 'assistants=v2'
+            ],
+        ]);
+
+        return json_decode($response->getBody())->data;
     }
 
 
     /**
+     * Store a newly created resource in storage.
+     */
+    public function getRoom(Request $request){
+        $conversations = Conversation::where('user_id', Auth::id())->get();
+        return response()->json(['status' => 'success', 'data' => $conversations]);
+    }
+    /**
+     * Store a newly created resource in storage.
+     */
+    public function getMessages($id){
+        $id_user=Auth::id();
+        $conversation = Conversation::where('id',$id)->where('user_id',$id_user)->first();
+        if(!$conversation){
+            return response()->json(['status'=>'error','message'=>'Not Found'],404);
+        }
+        $messages=Messages::where('room_id',$id)->get();
+        return response()->json($messages);
+    }
+       /**
      * Store a newly created resource in storage.
      */
     public function store(Request $request)
@@ -165,7 +237,7 @@ class ConversationController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return response()->json(['check' => false, 'msg' => $validator->errors()->first()], 422);
+            return response()->json(['status' => false, 'msg' => $validator->errors()->first()], 422);
         }
 
         try {
@@ -185,7 +257,7 @@ class ConversationController extends Controller
             if ($response->successful()) {
                 $apiData = $response->json();
                 $conversation = Conversation::create([
-                    'user_id' =>1,
+                    'user_id' =>Auth::id(),
                     'name' => 'New Chat',
                     'assistant_id' =>  $assistant->assistant_id,
                     'thread_id' => $apiData['thread_id'],
@@ -193,9 +265,9 @@ class ConversationController extends Controller
                     'last_message_at' => now(),
                     'is_active' => 1,
                 ]);
-                $conversations = Conversation::where('user_id', 1)->get();
+                $conversations = Conversation::where('user_id', Auth::id())->get();
 
-                return response()->json(['check' => true, 'data' => $conversations]);
+                return response()->json(['status' => 'success', 'data' => $conversations]);
             } else {
                 // Log and return API error response
                 \Log::error('Failed to create OpenAI thread', [
@@ -204,7 +276,7 @@ class ConversationController extends Controller
                 ]);
 
                 return response()->json([
-                    'check' => false,
+                    'status' => false,
                     'msg' => 'Failed to create OpenAI thread. Please try again later.',
                 ], 500);
             }
@@ -215,7 +287,7 @@ class ConversationController extends Controller
             ]);
 
             return response()->json([
-                'check' => false,
+                'status' => false,
                 'msg' => 'An unexpected error occurred. Please try again later.',
             ], 500);
         }
@@ -249,17 +321,17 @@ class ConversationController extends Controller
             'name.required' => 'Chưa có tên của chat box',
         ]);
         if ($validator->fails()) {
-            return response()->json(['check' => false, 'msg' => $validator->errors()->first()]);
+            return response()->json(['status' => false, 'msg' => $validator->errors()->first()]);
         }
         $conversation = Conversation::find($id);
         if(!$conversation){
-            return response()->json(['check' => false, 'msg' => 'Không tìm thấy cuộc trò chuyện']);
+            return response()->json(['status' => false, 'msg' => 'Không tìm thấy cuộc trò chuyện']);
         }
         $conversation->name = $request->name;
         $conversation->updated_at = now();
         $conversation->save();
         $conversations = Conversation::where('user_id', Auth::id())->get();
-        return response()->json(['check' => true, 'data' => $conversation,'conversations'=>$conversations]);
+        return response()->json(['status' => 'success', 'data' => $conversation,'conversations'=>$conversations]);
     }
 
     /**
