@@ -10,6 +10,10 @@ use App\Http\Controllers\API\v1\SubscriptionController;
 use App\Http\Controllers\API\v1\BannerController;
 use App\Http\Controllers\API\v1\LanguageController;
 use App\Http\Controllers\API\v1\CharacterController;
+use App\Http\Controllers\AssistantsController;
+use App\Http\Controllers\ChatsController;
+use App\Http\Controllers\ConversationController;
+use App\Http\Middleware\GuestUser;
 
 /*
 |--------------------------------------------------------------------------
@@ -26,7 +30,7 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
 
-Route::group(['middleware' => ['envKeyAuth']], function () {    
+Route::group(['middleware' => ['envKeyAuth']], function () {
     Route::post('v1/check-email/', [UserController::class, 'CheckEmail']);
     Route::post('v1/register/', [UserController::class, 'register']);
     Route::post('v1/login/', [UserController::class, 'login']);
@@ -59,7 +63,7 @@ Route::group(['middleware' => ['apiKeyAuth']], function () {
     Route::post('v1/reset-limit/', [UserController::class, 'ResetLimit']);
     Route::post('v1/get-user-subscription/', [SubscriptionController::class, 'GetUserSubscription']);
     Route::post('v1/create-user-subscription/', [SubscriptionController::class, 'CreateUserSubscription']);
-    Route::post('v1/delete-account/', [UserController::class, 'DeleteAccount']);    
+    Route::post('v1/delete-account/', [UserController::class, 'DeleteAccount']);
     Route::post('v1/save-chat-history/', [UserController::class, 'SaveChatHistory']);
     Route::post('v1/get-chat-history/', [UserController::class, 'GetChatHistory']);
     Route::post('v1/save-proms-history/', [UserController::class, 'SavePromsHistory']);
@@ -67,3 +71,7 @@ Route::group(['middleware' => ['apiKeyAuth']], function () {
     Route::post('v1/delete-proms-history/', [UserController::class, 'DeletePromsHistory']);
     Route::post('v1/delete-chat-history/', [UserController::class, 'DeleteChatHistory']);
 });
+Route::get('/room',[ConversationController::class,'getRoom'])->middleware(GuestUser::class);
+Route::post('/room',[ConversationController::class,'store'])->middleware(GuestUser::class);
+Route::post('/chat',[ConversationController::class,'send_message'])->middleware(GuestUser::class);
+Route::get('/chat/{id}',[ConversationController::class,'getMessages'])->middleware(GuestUser::class);

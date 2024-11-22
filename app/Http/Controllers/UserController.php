@@ -7,7 +7,7 @@ use App\Models\UserApp;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
-use Validator;
+use Illuminate\Support\Facades\Validator;
 
 class UserController extends Controller
 {
@@ -25,6 +25,39 @@ class UserController extends Controller
         return view("users.index")->with("users", $users);
     }
 
+    public function login(Request $request)
+    {
+        // Validate the request data
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|email|exists:users,email',
+            'password' => 'required',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        // Attempt to authenticate the user
+        if (!Auth::attempt(['email' => $request->email, 'password' => $request->password])) {
+            return response()->json(['check' => 'error', 'message' => 'Invalid credentials'], 401);
+        }
+
+        // Fetch the authenticated user
+        $user = Auth::user();
+
+        // Generate a new remember token
+        $token = bin2hex(random_bytes(32));
+        $user->remember_token = $token;
+        $user->save();
+
+        // Return a successful response
+        return response()->json([
+            'check' => 'success',
+            'message' => 'Authenticated successfully',
+            'token' => $token,
+            'user' => $user, // Optional: Return user details if required
+        ]);
+    }
 
     public function profile()
     {
@@ -39,7 +72,7 @@ class UserController extends Controller
         $password = $request->input('password');
         $old_password = $request->input('old_password');
         $email = $request->input('email');
-        
+
         if ($password == '') {
             $validator = Validator::make($request->all(), [
                 'name' => 'required|max:255',

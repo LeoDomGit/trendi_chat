@@ -18,13 +18,13 @@ class CharacterController extends Controller
     public function index(Request $request)
     {
         $query = Character::select('*');
-        
+
         if($request->search != null){
             $query->where('name','like','%'.$request->search.'%');
         }
-        
+
         $characters=  $query->paginate(10);
-        
+
         return view("characters.index")->with('characters',$characters);
     }
 
@@ -36,7 +36,7 @@ class CharacterController extends Controller
 
    public function store(Request $request)
     {
-        
+
         $validator = Validator::make($request->all(),[
             'name' => 'required',
             'photo' => 'required|mimes:jpeg,jpg,png,gif',
@@ -47,7 +47,7 @@ class CharacterController extends Controller
         }
 
         $data=$request->all();
-       
+
         if ($request->hasfile('photo')) {
             $destination = public_path('images/characters/'. $data['photo']);
             if(File::exists($destination)) {
@@ -58,14 +58,14 @@ class CharacterController extends Controller
             $filename = time() . '.' . $extenstion;
             $file->move(public_path('images/characters/'), $filename);
             $data['photo']=$filename;
-            
+
         }
         Character::create([
             'name' => $request->get('name'),
             'photo' => $data['photo'],
             'lock' => ($request->get('lock') == "on") ? 'yes' : 'no',
         ]);
-        
+
         return redirect('characters')->with('message','Character successfully created');
 
     }
@@ -85,7 +85,7 @@ class CharacterController extends Controller
         }else{
             $image_validation = "required|mimes:jpeg,jpg,png,gif";
         }
-        
+
         $validator = Validator::make($request->all(), $rules = [
             'name' => 'required',
             'photo' =>$image_validation,
@@ -99,7 +99,7 @@ class CharacterController extends Controller
         $lock = $request->has('lock') ? 'yes' : 'no';
 
         $characters = Character::find($id);
-        
+
         if ($characters) {
             $characters->name = $name;
             $characters->lock = $lock;
@@ -115,7 +115,7 @@ class CharacterController extends Controller
                 $extenstion = $file->getClientOriginalExtension();
                 $filename = time() . '.' . $extenstion;
                 $file->move(public_path('images/characters/'), $filename);
-               
+
                 $characters->photo = $filename;
             }
 
@@ -137,15 +137,15 @@ class CharacterController extends Controller
 
     public function delete($id)
     {
-       
+
         if ($id != "") {
 
             $id = json_decode($id);
 
             if (is_array($id)) {
-               
+
                 for ($i = 0; $i < count($id); $i++) {
-                   
+
                     $characters = Character::find($id[$i]);
                     $characters->delete();
                 }
